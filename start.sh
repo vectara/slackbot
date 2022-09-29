@@ -1,0 +1,8 @@
+export SLACK_BOT_TOKEN=
+export SLACK_APP_TOKEN=
+export VECTARA_CUSTOMER_ID=
+export VECTARA_CORPUS_ID=
+export SLACK_WORKSPACE_SUBDOMAIN=
+export VECTARA_APP_ID=
+export VECTARA_APP_SECRET=
+python3 slackbot.py
