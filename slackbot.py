@@ -210,7 +210,7 @@ def query_and_respond(say, search_text = None, state = None, rerank = False, num
           "type": "section",
           "text": {
             "type": "mrkdwn",
-            "text": "Search results for: *{}*".format(text)
+            "text": "Search results for: *{}*".format(search_text)
           }
         },
         {
