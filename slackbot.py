@@ -62,7 +62,7 @@ def enable_reranker(ack, body, say, logger):
   """Triggered when a user asks for results to be reranked."""
   ack()
   state = body['state']
-  original_search = body['actions'][0]['value']
+  original_search = get_original_query_text(body['message'])
   query_and_respond(say, original_search, state=state, rerank = True)
 
 @app.action("more_results")
@@ -70,7 +70,7 @@ def more_results(ack, body, say, logger):
   """Triggered when a user asks for more results."""
   ack()
   state = body['state']
-  original_search = body['actions'][0]['value']
+  original_search = get_original_query_text(body['message'])
   query_and_respond(say, original_search, state=state, num_results = 2)
 
 def escape_markdown(text, *, as_needed=False, ignore_links=True):
