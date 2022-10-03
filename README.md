@@ -50,3 +50,6 @@ messages may fail/produce irrelevant results until the recent message is
 indexed.
 
 Pull requests are welcome for the above or any other issues/enhancements!
+
+## License
+This code is licensed Apache 2.0.  For more details, see the [license file](LICENSE)
