@@ -146,7 +146,6 @@ def read_message(message, context, say):
         "message_type": message['type'],
         "poster": message['user'],
         "channel": message['channel'],
-        "team": message['team'],
         "channel_type": message['channel_type'],
         "timestamp": float(message['event_ts'])
       }
@@ -200,7 +199,6 @@ def query_and_respond(say, search_text = None, state = None, rerank = False, num
       link_meta = get_metadata_value(document_metadata, 'message_link')
       poster = get_metadata_value(document_metadata, 'poster')
       channel = get_metadata_value(document_metadata, 'channel')
-      team = get_metadata_value(document_metadata, 'team')
       timestamp = get_metadata_value(document_metadata, 'timestamp')
 
       # blocks are Slack's way of formatting messages.  For a reference, see
