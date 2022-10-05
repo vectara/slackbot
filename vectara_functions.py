@@ -44,7 +44,8 @@ def search(search_text: str, rerank: bool, num_results: int, metadata_filters: d
                 "corpus_key": [
                     {
                         "customer_id": int(os.environ.get('VECTARA_CUSTOMER_ID')),
-                        "corpus_id": int(os.environ.get('VECTARA_CORPUS_ID'))
+                        "corpus_id": int(os.environ.get('VECTARA_CORPUS_ID')),
+                        "metadata_filter": "part.is_title IS NULL"
                     }
                 ]
             }
@@ -84,6 +85,8 @@ def index_message(customer_id: int, corpus_id: int, text: str,
     request['customer_id'] = customer_id
     request['corpus_id'] = corpus_id
     request['document'] = document
+
+    #TODO: dump out request to a file
 
     response = requests.post(
         f"https://h.{idx_address}/v1/index",
