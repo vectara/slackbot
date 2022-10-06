@@ -29,8 +29,6 @@ will hold the content for our Slack messages.
   and `Data Type` of `Text`
   -  Add a new filter attibute with `Name` of `timestamp`, `level` of
   `Document` and `Data Type` of `Float`
-  -  Add a new filter attibute with `Name` of `is_title`, `level` of
-  `Part` and `Data Type` of `Text`
 - Optionally, give the corpus a description
 
 Once you've created the corpus, navigate to it and copy the `ID` value to
