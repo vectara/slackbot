@@ -7,6 +7,8 @@ from authlib.integrations.requests_client import OAuth2Session
 def _get_jwt_token(auth_url: str = None):
     """Connect to the server and get a JWT token."""
 
+    if os.environ.get('VECTARA_AUTH_URL') != None:
+        auth_url = os.environ.get('VECTARA_AUTH_URL')
     if auth_url == None:
       auth_url = "https://vectara-prod-{}.auth.us-west-2.amazoncognito.com".format(os.environ.get('VECTARA_CUSTOMER_ID'))
 
@@ -16,13 +18,12 @@ def _get_jwt_token(auth_url: str = None):
     token = session.fetch_token(token_endpoint, grant_type="client_credentials")
     return token["access_token"]
 
-
 def search_raw(headers: dict, data: dict):
     """ Takes headers and the JSON body and performs a search against Vectara """
     payload = json.dumps(data)
     
     response = requests.post(
-        "https://h.serving.vectara.io/v1/query",
+        "https://api.vectara.io/v1/query",
         data=payload,
         verify=True,
         headers=headers)
@@ -85,8 +86,6 @@ def index_message(customer_id: int, corpus_id: int, text: str,
     request['customer_id'] = customer_id
     request['corpus_id'] = corpus_id
     request['document'] = document
-
-    #TODO: dump out request to a file
 
     response = requests.post(
         f"https://h.{idx_address}/v1/index",
