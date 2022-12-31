@@ -115,6 +115,67 @@ def escape_markdown(text, *, as_needed=False, ignore_links=True):
         text = re.sub(r'\\', r'\\\\', text)
         return _MARKDOWN_ESCAPE_REGEX.sub(r'\\\1', text) 
 
+@app.command("/vectara")
+def command_search(ack, respond, command):
+    ack()
+    text = command['text']
+    parts = text.split(' ', 1)
+    if parts[0].startswith('<'):
+      channel = parts[0]
+      # channel is e.g. <#C03V4NCQKK2|feedback-firehose>
+      text = parts[1]
+    query_and_respond(respond, search_text = text)
+
+@app.event('app_home_opened')
+def home(client, event, logger):
+  client.views_publish(
+      # the user that opened your app's app home
+      user_id=event["user"],
+      # the view object that appears in the app home
+      view={
+        "type": "home",
+        "callback_id": "home_view",
+
+        # body of the view
+        "blocks": [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "*Welcome to Vectara* :tada:"
+            }
+          },
+          {
+            "type": "divider"
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "To interact with Vectara with this slackbot:\n1. Invite it to any channels you want to be searchable\n2. Wait :slightly_smiling_face:"
+            }
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "The slackbot doesn't attempt to index any message history prior to it joining: it will only index Slack messages sent after the bot is in the channel"
+            }
+          },
+          {
+            "type": "divider"
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "After messages have been sent while the bot has been in the channels, you can perform searches several ways:\n1. Send me a message: `@` me and then send query text e.g. `@VectaraSlackSearch who mentioned going to Hawaii?`\n2. Use the `/vectara` command, e.g. `/vectara who mentioned going to Hawaii?`\n3. Use the `/vectara` command with channel parameters, e.g. `/vectara #vacations who mentioned going to Hawaii` to limit the search to just that channel"
+            }
+          }
+        ]
+      }
+    )
+
 @app.event('message')
 def read_message(message, context, say):
   """Triggered when a message is posted.
@@ -342,7 +403,7 @@ def query_and_respond(say, search_text = None, state = None, rerank = False, num
               "text": "Search Results (Result {})".format(num_results)
             }
           })
-      say(blocks=blocks, text="@{} said:\n> {}\n\n at {}".format(poster,text,timestamp), unfurl_links=False, unfurl_media=False, metadata={"foo":"bar"})
+      say(blocks=blocks, text="@{} said:\n> {}\n\n at {}".format(poster,text,timestamp), unfurl_links=False, unfurl_media=False)
     else:
       say("Sorry, I couldn't find any relevant results")
 
