@@ -186,7 +186,7 @@ def read_message(message, context, say):
           metadata=metadata
         )
   else:
-    loging.error("Unhandled channel type: %s",message['channel_type'])
+    logging.error("Unhandled channel type: %s",message['channel_type'])
 
 def query_and_respond(say, search_text = None, rerank = None,
                       start_date = None, end_date = None, filter_by_user = None,
