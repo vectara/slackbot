@@ -21,6 +21,7 @@ def _get_jwt_token(auth_url: str = None):
 def search_raw(headers: dict, data: dict):
     """ Takes headers and the JSON body and performs a search against Vectara """
     payload = json.dumps(data)
+    logging.debug("Raw search payload: %s",payload)
     
     response = requests.post(
         "https://api.vectara.io/v1/query",
@@ -30,7 +31,7 @@ def search_raw(headers: dict, data: dict):
     search_results = json.loads(response.content)
     return data, search_results
 
-def search(search_text: str, rerank: bool, num_results: int, metadata_filters: dict = None):
+def search(search_text: str, rerank: bool, num_results: int, metadata_filters: list = None):
     """ Takes headers and the JSON body and performs a search against Vectara """
     jwt_token = _get_jwt_token()
     api_key_header = {
@@ -57,13 +58,14 @@ def search(search_text: str, rerank: bool, num_results: int, metadata_filters: d
         data_dict['query'][0]['start'] = 0
         data_dict['query'][0]['num_results'] = 100
     if metadata_filters != None:
+        metadata_filters.extend(['part.is_title IS NULL'])
         filter_string = " AND ".join(metadata_filters)
         data_dict['query'][0]['corpus_key'][0]['metadata_filter'] = filter_string
     return search_raw(api_key_header, data_dict)
 
 def index_message(customer_id: int, corpus_id: int, text: str,
                   id: str, title: str, metadata: dict = None,
-                  idx_address: str = "indexing.vectara.io"):
+                  idx_address: str = "api.vectara.io"):
     """ Indexes a document to Vectara """
     jwt_token = _get_jwt_token()
     post_headers = {
@@ -87,11 +89,14 @@ def index_message(customer_id: int, corpus_id: int, text: str,
     request['corpus_id'] = corpus_id
     request['document'] = document
 
+    logging.debug("Raw indexing request: %s",json.dumps(request))
+
     response = requests.post(
-        f"https://h.{idx_address}/v1/index",
+        f"https://{idx_address}/v1/index",
         data=json.dumps(request),
         verify=True,
         headers=post_headers)
+    logging.debug("Raw indexing response: %s", response)
 
     if response.status_code != 200:
         logging.error("REST upload failed with code %d, reason %s, text %s",

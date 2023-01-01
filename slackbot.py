@@ -1,19 +1,45 @@
 import json
 import logging
 import os
-import re
 from datetime import datetime, timedelta
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 from vectara_functions import get_metadata_value, index_message, search, search_raw
+from slack_helpers import homepage_blocks, escape_markdown
 
 app = App(token=os.environ.get('SLACK_BOT_TOKEN'))
 
-# constants
-_MARKDOWN_ESCAPE_SUBREGEX = '|'.join(r'\{0}(?=([\s\S]*((?<!\{0})\{0})))'.format(c)
-                                             for c in ('*', '`', '_', '~', '|'))
-_MARKDOWN_ESCAPE_COMMON = r'^>(?:>>)?\s|\[.+\]\(.+\)'
-_MARKDOWN_ESCAPE_REGEX = re.compile(r'(?P<markdown>%s|%s)' % (_MARKDOWN_ESCAPE_SUBREGEX, _MARKDOWN_ESCAPE_COMMON))
+def get_channel_filter(channel):
+  return 'doc.channel = \'{}\''.format(channel)
+
+def get_user_filter(user):
+  return 'doc.poster = \'{}\''.format(user)
+
+def get_start_date_filter(date):
+  utc_time = datetime.strptime(date, "%Y-%m-%d")
+  epoch_time = (utc_time - datetime(1970, 1, 1)).total_seconds()
+  return 'doc.timestamp >= {}'.format(epoch_time)
+
+def get_end_date_filter(date):
+  utc_time = datetime.strptime(date, "%Y-%m-%d")
+  epoch_time = (utc_time - datetime(1970, 1, 1)).total_seconds()
+  return 'doc.timestamp <= {}'.format(epoch_time)
+
+def extract_filters_from_state(state):
+  filter_values = []
+  if state != None:
+      for block in state['values']:
+        filters = state['values'][block]
+        for filter in filters:
+          if filter == 'filter_by_channel' and state['values'][block][filter]['selected_channel'] != None:
+            filter_values['channel'] = get_channel_filter(state['values'][block][filter]['selected_channel'])
+          elif filter == 'filter_by_user' and state['values'][block][filter]['selected_user'] != None:
+            filter_values['user'] = get_user_filter(state['values'][block][filter]['selected_user'])
+          elif filter == 'filter_start_date':
+            filter_values['start_date'] = get_start_date_filter(state['values'][block][filter]['selected_date'])
+          elif filter == 'filter_end_date':
+            filter_values['end_date'] = get_end_date_filter(state['values'][block][filter]['selected_date'])
+  return filter_values
 
 def get_original_query_text(message):
   """Extracts the original query text by looking up"""
@@ -25,7 +51,7 @@ def get_original_query_text(message):
       return original_text
   return None
 
-def standard_query_and_filter(ack, body, say, logger):
+def standard_query_and_filter(ack, body, say, logger, extract_filters_from_state = True):
   """Helper function for most of the filters.
   - Extracts the filter state
   - Pulls the original query text
@@ -33,9 +59,21 @@ def standard_query_and_filter(ack, body, say, logger):
   - Responds to the user
   """
   ack()
-  state = body['state']
+  user = None
+  channel = None
+  start_date = None
+  end_date = None
+  if extract_filters_from_state:
+    filters = extract_filters_from_state(body['state'])
+    user = filters['user'] if 'user' in filters else None
+    channel = filters['channel'] if 'channel' in filters else None
+    start_date = filters['start_date'] if 'start_date' in filters else None
+    end_date = filters['end_date'] if 'end_date' in filters else None
+
   original_search = get_original_query_text(body['message'])
-  query_and_respond(say, original_search, state=state)
+  query_and_respond(say, original_search,
+                    start_date=start_date, end_date=end_date,
+                    filter_by_user=user, filter_by_channel=channel)
 
 @app.action("filter_by_channel")
 def filter_by_channel(ack, body, say, logger):
@@ -48,22 +86,14 @@ def filter_by_user(ack, body, say, logger):
   standard_query_and_filter(ack, body, say, logger)
 
 @app.action("filter_start_date")
-def filter_by_channel(ack, body, say, logger):
+def filter_by_start_date(ack, body, say, logger):
   """Triggered when a user asks for the results to be filtered >= some date."""
   standard_query_and_filter(ack, body, say, logger)
 
 @app.action("filter_end_date")
-def filter_by_channel(ack, body, say, logger):
+def filter_by_end_date(ack, body, say, logger):
   """Triggered when a user asks for the results to be filtered <= some date."""
   standard_query_and_filter(ack, body, say, logger)
-
-@app.action("enable_reranker")
-def enable_reranker(ack, body, say, logger):
-  """Triggered when a user asks for results to be reranked."""
-  ack()
-  state = body['state']
-  original_search = get_original_query_text(body['message'])
-  query_and_respond(say, original_search, state=state, rerank = True)
 
 @app.action("more_results")
 def more_results(ack, body, say, logger):
@@ -73,58 +103,25 @@ def more_results(ack, body, say, logger):
   original_search = get_original_query_text(body['message'])
   query_and_respond(say, original_search, state=state, num_results = 2)
 
-def escape_markdown(text, *, as_needed=False, ignore_links=True):
-    """A helper function that escapes Discord's markdown.
-
-    Parameters
-    -----------
-    text: :class:`str`
-        The text to escape markdown from.
-    as_needed: :class:`bool`
-        Whether to escape the markdown characters as needed. This
-        means that it does not escape extraneous characters if it's
-        not necessary, e.g. ``**hello**`` is escaped into ``\*\*hello**``
-        instead of ``\*\*hello\*\*``. Note however that this can open
-        you up to some clever syntax abuse. Defaults to ``False``.
-    ignore_links: :class:`bool`
-        Whether to leave links alone when escaping markdown. For example,
-        if a URL in the text contains characters such as ``_`` then it will
-        be left alone. This option is not supported with ``as_needed``.
-        Defaults to ``True``.
-
-    Returns
-    --------
-    :class:`str`
-        The text with the markdown special characters escaped with a slash.
-    """
-
-    if not as_needed:
-        url_regex = r'(?P<url><[^: >]+:\/[^ >]+>|(?:https?|steam):\/\/[^\s<]+[^<.,:;\"\'\]\s])'
-        def replacement(match):
-            groupdict = match.groupdict()
-            is_url = groupdict.get('url')
-            if is_url:
-                return is_url
-            return '\\' + groupdict['markdown']
-
-        regex = r'(?P<markdown>[_\\~|\*`]|%s)' % _MARKDOWN_ESCAPE_COMMON
-        if ignore_links:
-            regex = '(?:%s|%s)' % (url_regex, regex)
-        return re.sub(regex, replacement, text)
-    else:
-        text = re.sub(r'\\', r'\\\\', text)
-        return _MARKDOWN_ESCAPE_REGEX.sub(r'\\\1', text) 
-
 @app.command("/vectara")
 def command_search(ack, respond, command):
     ack()
     text = command['text']
+    channel = None
+    user = None
     parts = text.split(' ', 1)
     if parts[0].startswith('<'):
-      channel = parts[0]
-      # channel is e.g. <#C03V4NCQKK2|feedback-firehose>
+      channel_or_user = parts[0]
+      channel_or_user_parts = channel_or_user.split('|')
+      channel_or_user_id = channel_or_user_parts[0]
+      # channel is e.g. <#C03V4NCQJK2|foo-bar>.  can also be a person if it starts with @ e.g. <@C03V4NCQJK2|shane>
+      if channel_or_user_id.startswith('<@'):
+        user = get_user_filter(channel_or_user_id[2:])
+      elif channel_or_user_id.startswith('<#'):
+        channel = get_channel_filter(channel_or_user_id[2:])
       text = parts[1]
-    query_and_respond(respond, search_text = text)
+    query_and_respond(respond, search_text = text,
+                      filter_by_user=user, filter_by_channel=channel)
 
 @app.event('app_home_opened')
 def home(client, event, logger):
@@ -137,42 +134,7 @@ def home(client, event, logger):
         "callback_id": "home_view",
 
         # body of the view
-        "blocks": [
-          {
-            "type": "section",
-            "text": {
-              "type": "mrkdwn",
-              "text": "*Welcome to Vectara* :tada:"
-            }
-          },
-          {
-            "type": "divider"
-          },
-          {
-            "type": "section",
-            "text": {
-              "type": "mrkdwn",
-              "text": "To interact with Vectara with this slackbot:\n1. Invite it to any channels you want to be searchable\n2. Wait :slightly_smiling_face:"
-            }
-          },
-          {
-            "type": "section",
-            "text": {
-              "type": "mrkdwn",
-              "text": "The slackbot doesn't attempt to index any message history prior to it joining: it will only index Slack messages sent after the bot is in the channel"
-            }
-          },
-          {
-            "type": "divider"
-          },
-          {
-            "type": "section",
-            "text": {
-              "type": "mrkdwn",
-              "text": "After messages have been sent while the bot has been in the channels, you can perform searches several ways:\n1. Send me a message: `@` me and then send query text e.g. `@VectaraSlackSearch who mentioned going to Hawaii?`\n2. Use the `/vectara` command, e.g. `/vectara who mentioned going to Hawaii?`\n3. Use the `/vectara` command with channel parameters, e.g. `/vectara #vacations who mentioned going to Hawaii` to limit the search to just that channel"
-            }
-          }
-        ]
+        "blocks": homepage_blocks()
       }
     )
 
@@ -190,61 +152,55 @@ def read_message(message, context, say):
     message_text = message['text']
     bot_user_id_reference = '<@{}>'.format(bot_user_id) #this is how a bot's mention shows up in the text
 
-    if (bot_user_id_reference in message_text):
-      # this is a search request
+    if (message['channel_type'] == 'im'):
+      # this is a search request -- either a direct message to the bot or the bot is mentioned
       search_text = message_text.replace(bot_user_id_reference,"").strip()
       query_and_respond(say, search_text)
-    else:
-      #index the content
-      epoch_us = int(float(message['event_ts']) * 10000000)
-      link = 'https://{}.slack.com/archives/{}/p{}'.format(
-        os.environ.get('SLACK_WORKSPACE_SUBDOMAIN'),
-        message['channel'],
-        epoch_us
-      )
-      metadata = {
-        "message_link": link,
-        "message_type": message['type'],
-        "poster": message['user'],
-        "channel": message['channel'],
-        "channel_type": message['channel_type'],
-        "timestamp": float(message['event_ts'])
-      }
+    elif message['channel_type'] == 'channel':
+      if bot_user_id_reference in message_text:
+        search_text = message_text.replace(bot_user_id_reference,"").strip()
+        query_and_respond(say, search_text, filter_by_channel=get_channel_filter(message['channel']))
+      else:
+        #index the content
+        epoch_us = int(float(message['event_ts']) * 10000000)
+        link = 'https://{}.slack.com/archives/{}/p{}'.format(
+          os.environ.get('SLACK_WORKSPACE_SUBDOMAIN'),
+          message['channel'],
+          epoch_us
+        )
+        metadata = {
+          "message_link": link,
+          "message_type": message['type'],
+          "poster": message['user'],
+          "channel": message['channel'],
+          "channel_type": message['channel_type'],
+          "timestamp": float(message['event_ts'])
+        }
 
-      index_message(
-        customer_id=int(os.environ.get('VECTARA_CUSTOMER_ID')),
-        corpus_id=int(os.environ.get('VECTARA_CORPUS_ID')),
-        text=message_text,
-        id=message['client_msg_id'],
-        title="Message from <@{}> at {}".format(message['user'], message['event_ts']),
-        metadata=metadata
-      )
+        index_message(
+          customer_id=int(os.environ.get('VECTARA_CUSTOMER_ID')),
+          corpus_id=int(os.environ.get('VECTARA_CORPUS_ID')),
+          text=message_text,
+          id=message['client_msg_id'],
+          title="Message from <@{}> at {}".format(message['user'], message['event_ts']),
+          metadata=metadata
+        )
+  else:
+    loging.error("Unhandled channel type: %s",message['channel_type'])
 
-def query_and_respond(say, search_text = None, state = None, rerank = False, num_results = 1):
+def query_and_respond(say, search_text = None, rerank = None,
+                      start_date = None, end_date = None, filter_by_user = None,
+                      filter_by_channel = None, num_results = 1):
     """
     """
-    filters = None
-    search_filters = []
-    if state != None:
-      for block in state['values']:
-        filters = state['values'][block]
-        for filter in filters:
-          if filter == 'filter_by_channel' and state['values'][block][filter]['selected_channel'] != None:
-            search_filters.append('doc.channel = \'{}\''.format(state['values'][block][filter]['selected_channel']))
-          elif filter == 'filter_by_user' and state['values'][block][filter]['selected_user'] != None:
-            search_filters.append('doc.poster = \'{}\''.format(state['values'][block][filter]['selected_user']))
-          elif filter == 'filter_start_date':
-            utc_time = datetime.strptime(state['values'][block][filter]['selected_date'], "%Y-%m-%d")
-            epoch_time = (utc_time - datetime(1970, 1, 1)).total_seconds()
-            search_filters.append('doc.timestamp >= {}'.format(epoch_time))
-          elif filter == 'filter_end_date':
-            utc_time = datetime.strptime(state['values'][block][filter]['selected_date'], "%Y-%m-%d")
-            epoch_time = (utc_time - datetime(1970, 1, 1)).total_seconds()
-            search_filters.append('doc.timestamp <= {}'.format(epoch_time))
+    if rerank == None and os.environ.get('VECTARA_USE_RERANKER') == 'true':
+      rerank = True
+    filters = [x for x in [filter_by_channel, filter_by_user, start_date, end_date] if x is not None]
+    
     search_query, search_results = search(search_text=search_text,
                                           rerank=rerank,
                                           num_results=num_results,
-                                          metadata_filters=search_filters)
+                                          metadata_filters=filters)
     
     if (len(search_results['responseSet']) > 0 and len(search_results['responseSet'][0]['response']) > 0):
       # Always grab the last result, because if the user has asked for
@@ -293,34 +249,9 @@ def query_and_respond(say, search_text = None, state = None, rerank = False, num
       # Only add the reranker / more results, and filters if the user hasn't
       # already used one of them.  This is an arbitrary limitation that just
       # simplifies some logic and can be removed in the future
-      if rerank == False and num_results == 1:
+      if len(filters) == 0:
         blocks.append({
             "type": "divider"
-        })
-        blocks.append({
-          "type": "actions",
-          "elements": [
-            {
-              "type": "button",
-              "text": {
-                "type": "plain_text",
-                "text": "Enable Reranker",
-                "emoji": True
-              },
-              "value": json.dumps(search_query),
-              "action_id": "enable_reranker"
-            },
-            {
-              "type": "button",
-              "text": {
-                "type": "plain_text",
-                "text": "More Results",
-                "emoji": True
-              },
-              "value": json.dumps(search_query),
-              "action_id": "more_results"
-             }
-          ]
         })
         # Add our metadata filters
         blocks.append({
@@ -387,14 +318,6 @@ def query_and_respond(say, search_text = None, state = None, rerank = False, num
           }
         })
       else:
-        if rerank == True:
-          blocks.insert(0, {
-            "type": "header",
-            "text": {
-              "type": "plain_text",
-              "text": "Search Results (Reranked)"
-            }
-          })
         if num_results != 1:
           blocks.insert(0, {
             "type": "header",
